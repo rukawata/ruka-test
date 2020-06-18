@@ -41,17 +41,10 @@ resource "azurerm_network_interface" "rti" {
   ip_configuration {
     name                          = "${local.rti[count.index].name}-nic1-ip"
     subnet_id                     = var.subnet-mgmt[0].id
-    private_ip_address            = var.infrastructure.vnets.management.subnet_mgmt.is_existing ? local.rti[count.index].private_ip_address : lookup(local.rti[count.index], "private_ip_address", false) != false ? local.rti[count.index].private_ip_address : cidrhost(var.infrastructure.vnets.management.subnet_mgmt.prefix, (count.index + 4 + length(local.vm-jump-win) + length(local.vm-jump-linux)))
+    private_ip_address            = var.infrastructure.vnets.management.subnet_mgmt.is_existing ? local.rti[count.index].private_ip_address : (lookup(local.rti[count.index], "private_ip_address", "") != "" ? local.rti[count.index].private_ip_address : cidrhost(var.infrastructure.vnets.management.subnet_mgmt.prefix, (count.index + 4 + length(local.vm-jump-win) + length(local.vm-jump-linux))))
     private_ip_address_allocation = "static"
     public_ip_address_id          = azurerm_public_ip.rti[count.index].id
   }
-}
-
-# Manages the association between NIC and NSG for RTI
-resource "azurerm_network_interface_security_group_association" "rti" {
-  count                     = length(local.rti)
-  network_interface_id      = azurerm_network_interface.rti[count.index].id
-  network_security_group_id = var.nsg-mgmt[0].id
 }
 
 # Manages Linux Virtual Machine for RTI

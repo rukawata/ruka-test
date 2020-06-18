@@ -60,7 +60,18 @@ if [[ "$?" == "1" ]]; then # in this case append the parameter to the file
     ExitIfFailed $? "Enable to add GRUB_CMDLINE_LINUX_DEFAULT parameter in /etc/default/grub"
 fi
 
-ReplaceLowHighInGrubFile()
+AddNumaSettingInKdumpConfFile()
+{
+    source /etc/sysconfig/kdump
+    # check if the KDUMP_COMMANDLINE_APPEND env contains numa=off setting
+    echo $KDUMP_COMMANDLINE_APPEND | grep "numa=off"
+    if [[ "$?" == "1" ]]; then # numa=off setting does not exist
+        KDUMP_COMMANDLINE_APPEND="\"$KDUMP_COMMANDLINE_APPEND numa=off\""
+        sed -i "s#^KDUMP_COMMANDLINE_APPEND=\".*\"#KDUMP_COMMANDLINE_APPEND=$KDUMP_COMMANDLINE_APPEND#gI" /etc/sysconfig/kdump
+    fi
+}
+
+ReplaceParamsInGrubFile()
 {
     # get low and high value reported by kdumptool calibrate
     # kdumptool calibrate reports key value pair
@@ -87,8 +98,29 @@ ReplaceLowHighInGrubFile()
     sed -i "s/crashkernel=[0-9]*[MG],high//gI" /etc/default/grub
     sed -i "s/crashkernel=[0-9]*[MG],low//gI" /etc/default/grub
 
+    # commandline parameters which must be present in order to make sure
+    # that kdump works
+    commandline_params=(
+        "splash=verbose"
+        "mce=ignore_ce"
+        "nomodeset"
+        "numa_balancing=disable"
+        "transparent_hugepage=never"
+        "intel_idle.max_cstate=1"
+        "processor.max_cstate=1"
+        "quiet"
+        "showopts"
+        "rw"
+    )
+
     # load /etc/default/grub value in env variables to append crashkernel high, low value
     source /etc/default/grub
+    for i in "${commandline_params[@]}"; do
+        grep $i /proc/cmdline
+        if [[ "$?" == "1" ]]; then # this option is not present in cmdline
+            GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT $i"
+        fi
+    done
 
     # append crashkernel high,low value to GRUB_CMDLINE_LINUX_DEFAULT
     GRUB_CMDLINE_LINUX_DEFAULT="\"$GRUB_CMDLINE_LINUX_DEFAULT crashkernel=$high_to_use\M,high crashkernel=$Low\M,low\""
@@ -96,7 +128,7 @@ ReplaceLowHighInGrubFile()
     # replace GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub with new value
     # using seperator # because / can already exist in GRUB_CMDLINE_LINUX_DEFAULT then sed command will not work
     sed -i "s#^GRUB_CMDLINE_LINUX_DEFAULT=.*#GRUB_CMDLINE_LINUX_DEFAULT=$GRUB_CMDLINE_LINUX_DEFAULT#gI" /etc/default/grub
-    ExitIfFailed $? "Enable to change crashkernel parameters in /etc/default/grub"
+    ExitIfFailed $? "Enable to change parameters in /etc/default/grub"
 }
 
 # there can be 4 cases for crashkernel parameter in /pro/cmdline
@@ -110,37 +142,12 @@ ReplaceLowHighInGrubFile()
 grep "crashkernel=16G-4096G:512M,4096G-16384G:1G,16384G-32768G:2G,32768G-:3G@4G" /proc/cmdline
 if [[ "$?" == "1" ]]; then # can be case 2,3,4
     # case 2,3,4
-    ReplaceLowHighInGrubFile
+    ReplaceParamsInGrubFile
 fi
 
-# commandline parameters which must be present in order to make sure
-# that kdump works
-commandline_params=(
-    "splash=verbose"
-    "mce=ignore_ce"
-    "nomodeset"
-    "numa_balancing=disable"
-    "transparent_hugepage=never"
-    "intel_idle.max_cstate=1"
-    "processor.max_cstate=1"
-    "quiet"
-    "showopts"
-    "rw"
-)
-
-# load /etc/default/grub value in env variables to append commandline params
-source /etc/default/grub
-for i in "${commandline_params[@]}"; do
-    grep $i /proc/cmdline
-    if [[ "$?" == "1" ]]; then # this option is not present in cmdline
-        GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT $i"
-    fi
-done
-
-# replace old value of GRUB_CMDLINE_LINUX_DEFAULT with new value
-GRUB_CMDLINE_LINUX_DEFAULT="\"$GRUB_CMDLINE_LINUX_DEFAULT\""
-sed -i "s#^GRUB_CMDLINE_LINUX_DEFAULT=.*#GRUB_CMDLINE_LINUX_DEFAULT=$GRUB_CMDLINE_LINUX_DEFAULT#gI" /etc/default/grub
-ExitIfFailed $? "Enable to change commandline parameters in /etc/default/grub"
+# numa=off setting in kdump configuraiton file if it's
+# not present already
+AddNumaSettingInKdumpConfFile
 
 # set KDUMP_SAVEDIR to file:///var/crash in /etc/sysconfig/kdump
 sed -i "s#^KDUMP_SAVEDIR=\".*\"#KDUMP_SAVEDIR=\"file:\/\/\/var\/crash\"#gI" /etc/sysconfig/kdump
@@ -149,7 +156,9 @@ sed -i "s#^KDUMP_SAVEDIR=\".*\"#KDUMP_SAVEDIR=\"file:\/\/\/var\/crash\"#gI" /etc
 sed -i "s/^KDUMP_DUMPLEVEL=[0-9]*/KDUMP_DUMPLEVEL=31/gI" /etc/sysconfig/kdump
 
 # set kernel.sysrq to 184(recommended)
-echo 184 > /proc/sys/kernel/sysrq
+# remove kernel.syrq entry if exist in /etc/sysctl.conf
+sed -i "s/^kernel.sysrq=[0-9]*//gI" /etc/sysctl.conf
+echo "kernel.sysrq=184" >> /etc/sysctl.conf
 ExitIfFailed $? "Failed to set kernel.sysrq value to 184"
 
 # update the changes in /boot/grub2/grub.cfg so that after reboot these changes reflect in /proc/cmdline
