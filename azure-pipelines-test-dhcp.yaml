@@ -4,8 +4,8 @@ trigger: none
 # A pipeline with no PR triggers
 pr: none
 schedules:
-- cron: '0 */4 * * *'
-  displayName: DHCP test every 4 hours
+- cron: '0 */1 * * *'
+  displayName: DHCP test every 1 hours
   branches:
     include:
     - nancyc-test-hostname
