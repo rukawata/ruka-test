@@ -8,7 +8,7 @@ schedules:
   displayName: DHCP test every 1 hours
   branches:
     include:
-    - nancyc-test-hostname
+    - master
   always: true
 variables:
   - group: azure-config-variables
